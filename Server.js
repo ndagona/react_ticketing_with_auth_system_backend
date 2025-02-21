@@ -1,6 +1,6 @@
 require("dotenv").config()
 const express = require("express")
-const database = require("better-sqlite3")("Dave.db")
+const database = require("better-sqlite3")("dwoperations.db")
 database.pragma("journal_mode = WAL")
 const cors = require("cors")
 const jwt = require("jsonwebtoken")
@@ -8,7 +8,6 @@ const cookieParser = require("cookie-parser");
 //App declaration
 
 const app = express()
-
 //Use
 app.set('view engine', 'ejs')
 app.use(express.static('public'))
@@ -53,9 +52,42 @@ const createTable = database.transaction(() => {
         )
         `
     ).run()
+
+
+})
+const createResponse = database.transaction(() => {
+
+    database.prepare(
+        `
+    CREATE TABLE IF NOT EXISTS ticket_responses (
+    
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type      STRING  ,
+    mobile_no      STRING  ,
+    client_name      STRING  ,
+    account_no      STRING  ,
+    branch      STRING  ,
+    email      STRING  ,
+    client_type      STRING  ,
+    caller      STRING  ,
+    product      STRING  ,
+    criteria      STRING  ,
+    query      STRING  ,
+    sub_query      STRING  ,
+    issue_is_resolved      STRING  ,
+    has_watu_app      STRING  ,
+    comment      STRING  ,
+    voc      STRING  ,
+    client_email      STRING  
+)     
+        `
+    ).run()
+
+
 })
 
 createTable()
+createResponse()
 
 //End of db creaion
 //Database Login
@@ -64,6 +96,15 @@ createTable()
 //End of Database
 
 //End points
+app.get("/logout", (req, res) => {
+    console.log("Logging out")
+    res.clearCookie('OurSimpleApp', { path: '/' })
+    return res.json({
+        message: "Logout success"
+        , state: true
+    })
+})
+
 app.post("/", (req, res) => {
     res.send({
         message: "server running smoothly.."
@@ -76,10 +117,6 @@ app.get("/", (req, res) => {
 })
 
 app.post('/register', (req, res) => {
-    console.log("Register post request")
-    console.log(req.body)
-
-
     if (typeof req.body.username !== "string" || req.body.username.length < 3 || req.body.username.length > 20) {
         return res.json({ message: "Invalid Username" })
 
@@ -110,7 +147,6 @@ app.post('/register', (req, res) => {
         }
         catch (db_error) {
             const db_error_str = db_error.toString()
-            console.log(`DB error is : ${db_error_str}`)
             if (db_error_str.includes('UNIQUE')) {
                 if (db_error_str.includes('email')) {
                     return "Email Already Registered"
@@ -152,14 +188,16 @@ app.post('/register', (req, res) => {
 
 })
 
+
+
 app.post('/login', (req, res) => {
     if (typeof req.body.username !== "string" || req.body.username.length < 3 || req.body.username.length > 20) {
         return res.json({ message: "Invalid Username" })
 
     }
     if (typeof req.body.password !== "string" || req.body.password.length < 8) {
-        res.json({ message: "Password too short. At least 8 charactors!" })
-        return
+        return res.json({ message: "Password too short. At least 8 charactors!" })
+
     }
 
     const checkUser = () => {
@@ -198,7 +236,6 @@ app.post('/login', (req, res) => {
 const verify_user = (req, res, next) => {
     const OurSimpleApp = req.cookies.OurSimpleApp;
     if (!OurSimpleApp) {
-        console.log("In ender statement")
         return res.send({
             message: "Not logged in",
             state: false
@@ -227,6 +264,7 @@ const verify_user = (req, res, next) => {
 }
 
 app.get("/loggedin", verify_user, (req, res) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     return res.json({
         username: req.username,
         email: req.email,
@@ -236,11 +274,71 @@ app.get("/loggedin", verify_user, (req, res) => {
 
 //End of endPoints
 
+app.post('/submit_ticket', (req, res) => {
+    console.log("Submit post hit")
+    try {
+        const prepareInsert = database.prepare(
+            `
+            INSERT INTO ticket_responses (
+             type ,
+    mobile_no,
+    client_name,
+    account_no,
+    branch,
+    email,
+    client_type,
+    caller,
+    product,
+    criteria,
+    query,
+    sub_query,
+    issue_is_resolved,
+    has_watu_app,
+    comment,
+    voc,
+    client_email
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            `
+        )
+
+        prepareInsert.run(
+            req.body.type,
+            req.body.mobile_no,
+            req.body.client_name,
+            req.body.account_no,
+            req.body.branch,
+            req.body.email,
+            req.body.client_type,
+            req.body.caller,
+            req.body.product,
+            req.body.criteria,
+            req.body.query,
+            req.body.sub_query,
+            req.body.issue_is_resolved,
+            req.body.has_watu_app,
+            req.body.comment,
+            req.body.voc,
+            req.body.client_email,
+        )
+
+        res.json({
+            state: true,
+            message: "Success"
+        })
+
+    } catch (e) {
+        console.log(e)
+        res.json({
+            state: false,
+            message: e
+        })
+    }
+})
 
 //Listening port
 
 app.listen(
     process.env.PORT, () => {
-        console.log(`Listening on port ${process.env.PORT}`)
+        console.log(`Listening on port ${process.env.PORT} \n... \n`)
     }
 )
