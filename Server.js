@@ -1,6 +1,6 @@
 require("dotenv").config()
 const express = require("express")
-const database = require("better-sqlite3")("dwoperations.db")
+const database = require("better-sqlite3")("dwoperation.db")
 database.pragma("journal_mode = WAL")
 const cors = require("cors")
 const jwt = require("jsonwebtoken")
@@ -62,6 +62,39 @@ const createResponse = database.transaction(() => {
     CREATE TABLE IF NOT EXISTS ticket_responses (
     
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TIMESTAMP NOT NULL,
+    type      STRING  ,
+    mobile_no      STRING  ,
+    client_name      STRING  ,
+    account_no      STRING  ,
+    branch      STRING  ,
+    email      STRING  ,
+    client_type      STRING  ,
+    caller      STRING  ,
+    product      STRING  ,
+    criteria      STRING  ,
+    query      STRING  ,
+    sub_query      STRING  ,
+    issue_is_resolved      STRING  ,
+    has_watu_app      STRING  ,
+    comment      STRING  ,
+    voc      STRING  ,
+    client_email      STRING  
+)     
+        `
+    ).run()
+
+
+})
+const createsAVE = database.transaction(() => {
+
+    database.prepare(
+        `
+    CREATE TABLE IF NOT EXISTS ticket_responses_save (
+
+    
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TIMESTAMP NOT NULL,
     type      STRING  ,
     mobile_no      STRING  ,
     client_name      STRING  ,
@@ -190,6 +223,8 @@ app.post('/register', (req, res) => {
 
 
 
+
+
 app.post('/login', (req, res) => {
     if (typeof req.body.username !== "string" || req.body.username.length < 3 || req.body.username.length > 20) {
         return res.json({ message: "Invalid Username" })
@@ -203,13 +238,18 @@ app.post('/login', (req, res) => {
     const checkUser = () => {
         const readStatement = database.prepare("SELECT * FROM users WHERE username = ? AND password = ?")
         const readResult = readStatement.get(req.body.username, req.body.password)
+        console.log("Read result", readResult)
         return readResult
     }
-
+    console.log(req.body)
     const tempData = checkUser()
-    const res_dict = tempData !== 'undefined' ? {
+    const res_dict = tempData !== 'undefined' && tempData !== undefined ? {
         useremail: tempData.email, username: tempData.username, state: true
-    } : { message: "Wrong Login Credentials. Create Account", state: false }
+    } : { state: false }
+
+    if (res_dict.state === false) {
+        return res.json({ message: "Wrong Login Credentials. Create Account?", state: false })
+    }
 
     const tokenVal = jwt.sign({
         exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24, //24hour expiry
@@ -234,6 +274,7 @@ app.post('/login', (req, res) => {
 
 //Logged in API
 const verify_user = (req, res, next) => {
+    console.log("WAS CALLED")
     const OurSimpleApp = req.cookies.OurSimpleApp;
     if (!OurSimpleApp) {
         return res.send({
@@ -263,6 +304,75 @@ const verify_user = (req, res, next) => {
     }
 }
 
+app.get("/recent_records", verify_user, (req, res) => {
+    const readRecords = () => {
+        const statement = database.prepare(
+            `SELECT * FROM ticket_responses
+            WHERE 1 = 1
+            AND email = ?
+            ORDER BY ID DESC
+            LIMIT 10
+            `
+        )
+        return statement.all(req.email)
+    }
+
+    const result = readRecords()
+    if (result) {
+        const data_object = {
+            headers: [Object.keys(result[0])].map(row => [row[1], row[2], row[8], row[9], row[10], row[11], row[15]]).flat(),
+            data: Object.keys(result).map(row => [Object.entries(result[row])]
+                .map(row => { return [row[1], row[2], row[8], row[9], row[10], row[11], row[15]] })[0]
+                .map(roww => roww[1]))
+        }
+        return res.json(data_object)
+    }
+    return res.send(result)
+
+
+
+})
+app.get("/featured_report", verify_user, (req, res) => {
+    const readRecords = () => {
+        const statement = database.prepare(
+            `WITH core AS (
+    SELECT 
+        email,
+        DATE(timestamp) AS report_time,
+        strftime('%Y-%m-01', timestamp) AS month,
+        strftime('%Y-%W', timestamp) AS week,
+        strftime('%w', timestamp) AS weekday
+    FROM ticket_responses
+    WHERE timestamp IS NOT NULL
+),
+email_summary AS (
+    SELECT 
+        email,
+        COUNT(CASE WHEN report_time = CURRENT_DATE THEN 1 ELSE NULL END) AS today_records,
+        COUNT(CASE WHEN week = strftime('%Y-%W', CURRENT_DATE) THEN 1 ELSE NULL END) AS this_week_records,
+        COUNT(CASE WHEN month = strftime('%Y-%m-01', CURRENT_DATE) THEN 1 ELSE NULL END) AS this_month_records,
+        COUNT(CASE WHEN month = strftime('%Y-%m-01', DATE(CURRENT_DATE, '-1 month')) THEN 1 ELSE NULL END) AS last_month_records
+    FROM core
+    GROUP BY email
+),
+SELECT email, today_records, this_week_records, this_month_records, last_month_records
+FROM email_summary
+WHERE 1 = 1
+AND email = ?
+            `
+        )
+        return statement.all(req.email)
+    }
+
+    const result = readRecords()
+    console.log(result)
+    return res.send(result)
+
+
+
+})
+
+
 app.get("/loggedin", verify_user, (req, res) => {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     return res.json({
@@ -276,10 +386,12 @@ app.get("/loggedin", verify_user, (req, res) => {
 
 app.post('/submit_ticket', (req, res) => {
     console.log("Submit post hit")
+    console.log(req.body)
     try {
         const prepareInsert = database.prepare(
             `
             INSERT INTO ticket_responses (
+            timestamp,
              type ,
     mobile_no,
     client_name,
@@ -297,11 +409,12 @@ app.post('/submit_ticket', (req, res) => {
     comment,
     voc,
     client_email
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             `
         )
-
+        const timestamp = new Date().toISOString()
         prepareInsert.run(
+            timestamp,
             req.body.type,
             req.body.mobile_no,
             req.body.client_name,
